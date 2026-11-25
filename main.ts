@@ -1,6 +1,6 @@
 // news-image-20261125 — "The World Today, Wednesday 25 November 2026"
-// A front page drawn from scratch for this bounty only, with a pixel
-// font stored as strings and a hand-built PNG encoder.
+// A front page drawn from scratch for this bounty only: a pixel font kept
+// as one row of bit-strings per glyph, and a hand-built PNG encoder.
 // Node 24, PURE stdlib (fs + zlib only). No network at runtime.
 // Deterministic: fixed date string, fixed palette, fixed geometry.
 // Writes a 1024x1024 PNG to /output/entry.png.
@@ -30,56 +30,68 @@ const SKY = [168, 200, 224];
 // ---------------------------------------------------------------- canvas
 // Raw RGB framebuffer, three bytes per pixel, row-major.
 const buf = new Uint8Array(W * H * 3);
-function dot(x: number, y: number, c: number[]): void {
+function px(x: number, y: number, c: number[]): void {
   if (x < 0 || y < 0 || x >= W || y >= H) return;
-  const i = (y * W + x) * 3;
-  buf[i] = c[0]; buf[i + 1] = c[1]; buf[i + 2] = c[2];
+  const o = (y * W + x) * 3;
+  buf[o] = c[0];
+  buf[o + 1] = c[1];
+  buf[o + 2] = c[2];
 }
-function box(x: number, y: number, w: number, h: number, c: number[]): void {
-  const x0 = Math.max(0, x), y0 = Math.max(0, y);
-  const x1 = Math.min(W, x + w), y1 = Math.min(H, y + h);
-  for (let yy = y0; yy < y1; yy++) {
-    let i = (yy * W + x0) * 3;
-    for (let xx = x0; xx < x1; xx++) { buf[i] = c[0]; buf[i + 1] = c[1]; buf[i + 2] = c[2]; i += 3; }
+function fill(x: number, y: number, w: number, h: number, c: number[]): void {
+  const ax = Math.max(0, x);
+  const ay = Math.max(0, y);
+  const bx = Math.min(W, x + w);
+  const by = Math.min(H, y + h);
+  for (let yy = ay; yy < by; yy++) {
+    let o = (yy * W + ax) * 3;
+    for (let xx = ax; xx < bx; xx++) {
+      buf[o] = c[0];
+      buf[o + 1] = c[1];
+      buf[o + 2] = c[2];
+      o += 3;
+    }
   }
 }
-function disc(cx: number, cy: number, r: number, c: number[]): void {
-  for (let y = -r; y <= r; y++) for (let x = -r; x <= r; x++) {
-    if (x * x + y * y <= r * r) dot(cx + x, cy + y, c);
+function ball(cx: number, cy: number, r: number, c: number[]): void {
+  for (let y = -r; y <= r; y++) {
+    for (let x = -r; x <= r; x++) {
+      if (x * x + y * y <= r * r) px(cx + x, cy + y, c);
+    }
   }
 }
-function halo(cx: number, cy: number, r: number, t: number, c: number[]): void {
-  for (let y = -r - t; y <= r + t; y++) for (let x = -r - t; x <= r + t; x++) {
-    const d = Math.sqrt(x * x + y * y);
-    if (d >= r - t && d <= r + t) dot(cx + x, cy + y, c);
+function line(x0: number, y0: number, x1: number, y1: number, c: number[]): void {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const n = Math.max(Math.abs(dx), Math.abs(dy), 1);
+  for (let i = 0; i <= n; i++) {
+    px(Math.round(x0 + (dx * i) / n), Math.round(y0 + (dy * i) / n), c);
   }
 }
-function seg(x0: number, y0: number, x1: number, y1: number, c: number[]): void {
-  const dx = x1 - x0, dy = y1 - y0, n = Math.max(Math.abs(dx), Math.abs(dy), 1);
-  for (let i = 0; i <= n; i++) dot(Math.round(x0 + dx * i / n), Math.round(y0 + dy * i / n), c);
-}
-function wedge(x0: number, y0: number, x1: number, y1: number, x2: number, y2: number, c: number[]): void {
-  const minX = Math.min(x0, x1, x2), maxX = Math.max(x0, x1, x2);
-  const minY = Math.min(y0, y1, y2), maxY = Math.max(y0, y1, y2);
-  const d = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2);
-  if (d === 0) return;
-  for (let y = minY; y <= maxY; y++) for (let x = minX; x <= maxX; x++) {
-    const a = ((y1 - y2) * (x - x2) + (x2 - x1) * (y - y2)) / d;
-    const b = ((y2 - y0) * (x - x2) + (x0 - x2) * (y - y2)) / d;
-    const cc = 1 - a - b;
-    if (a >= 0 && b >= 0 && cc >= 0) dot(x, y, c);
+function tri(x0: number, y0: number, x1: number, y1: number, x2: number, y2: number, c: number[]): void {
+  const loX = Math.min(x0, x1, x2);
+  const hiX = Math.max(x0, x1, x2);
+  const loY = Math.min(y0, y1, y2);
+  const hiY = Math.max(y0, y1, y2);
+  const den = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2);
+  if (den === 0) return;
+  for (let y = loY; y <= hiY; y++) {
+    for (let x = loX; x <= hiX; x++) {
+      const a = ((y1 - y2) * (x - x2) + (x2 - x1) * (y - y2)) / den;
+      const b = ((y2 - y0) * (x - x2) + (x0 - x2) * (y - y2)) / den;
+      if (a >= 0 && b >= 0 && 1 - a - b >= 0) px(x, y, c);
+    }
   }
 }
-function fade(x: number, y: number, w: number, h: number, top: number[], bot: number[]): void {
+function grad(x: number, y: number, w: number, h: number, top: number[], bot: number[]): void {
   for (let yy = 0; yy < h; yy++) {
     const t = yy / Math.max(1, h - 1);
-    const c = [0, 1, 2].map((k) => Math.round(top[k] + (bot[k] - top[k]) * t));
-    box(x, y + yy, w, 1, c);
+    const c = [top[0] + (bot[0] - top[0]) * t, top[1] + (bot[1] - top[1]) * t, top[2] + (bot[2] - top[2]) * t].map((v) => Math.round(v));
+    fill(x, y + yy, w, 1, c);
   }
 }
 
 // ---------------------------------------------------------------- 5x7 font
-// Each glyph is 7 strings of 5 characters; "1" is ink, "0" is blank.
+// One line per glyph: seven rows of five bits, "1" is ink, "0" is blank.
 const GLYPHS: Record<string, string[]> = {
   A: ["01110", "10001", "10001", "11111", "10001", "10001", "10001"],
   B: ["11110", "10001", "10001", "11110", "10001", "10001", "11110"],
@@ -134,66 +146,75 @@ const GLYPHS: Record<string, string[]> = {
   "*": ["00000", "00100", "10101", "01110", "10101", "00100", "00000"],
   "$": ["00100", "01111", "10100", "01110", "00101", "11110", "00100"],
 };
-function measure(s: string, sc: number): number {
+function textW(s: string, sc: number): number {
   return s.length * 6 * sc - sc;
 }
-function write(x: number, y: number, s: string, sc: number, c: number[]): number {
+function put(x: number, y: number, s: string, sc: number, c: number[]): number {
   const up = s.toUpperCase();
   let cx = x;
   for (const ch of up) {
     const g = GLYPHS[ch] || GLYPHS["?"];
-    for (let r = 0; r < 7; r++) for (let col = 0; col < 5; col++) {
-      if (g[r][col] === "1") box(cx + col * sc, y + r * sc, sc, sc, c);
+    for (let r = 0; r < 7; r++) {
+      for (let col = 0; col < 5; col++) {
+        if (g[r][col] === "1") fill(cx + col * sc, y + r * sc, sc, sc, c);
+      }
     }
     cx += 6 * sc;
   }
   return cx;
 }
-function center(cx: number, y: number, s: string, sc: number, c: number[]): void {
-  write(cx - Math.floor(measure(s, sc) / 2), y, s, sc, c);
+function putC(cx: number, y: number, s: string, sc: number, c: number[]): void {
+  put(cx - Math.floor(textW(s, sc) / 2), y, s, sc, c);
 }
 // Word-wrap paragraph; returns y after last line.
-function block(x: number, y: number, maxW: number, s: string, sc: number, lh: number, c: number[]): number {
+function para(x: number, y: number, maxW: number, s: string, sc: number, lh: number, c: number[]): number {
   const words = s.split(" ");
-  let line = "";
+  let ln = "";
   let cy = y;
   for (const w of words) {
-    const test = line ? line + " " + w : w;
-    if (measure(test, sc) > maxW && line) {
-      write(x, cy, line, sc, c);
+    const t = ln ? ln + " " + w : w;
+    if (textW(t, sc) > maxW && ln) {
+      put(x, cy, ln, sc, c);
       cy += lh;
-      line = w;
-    } else line = test;
+      ln = w;
+    } else {
+      ln = t;
+    }
   }
-  if (line) { write(x, cy, line, sc, c); cy += lh; }
+  if (ln) {
+    put(x, cy, ln, sc, c);
+    cy += lh;
+  }
   return cy;
 }
-function tag(x: number, y: number, s: string, c: number[]): void {
-  write(x, y, s, 2, c);
+function kick(x: number, y: number, s: string, c: number[]): void {
+  put(x, y, s, 2, c);
 }
 
 // ---------------------------------------------------------------- PNG encoder
-// Build the PNG by hand: signature, IHDR, one IDAT with zlib-deflated
-// raw scanlines (filter byte 0 per row), IEND. CRC32 is computed over
-// the chunk type plus its data, with the standard reversed polynomial.
-function be32(n: number): Buffer {
+// The PNG is assembled by hand: signature, IHDR, one IDAT holding the
+// zlib-deflated scanlines (filter byte 0 on every row), then IEND. Each
+// chunk carries a CRC32 over its type plus data, standard reversed poly.
+function u32be(n: number): Buffer {
   const b = Buffer.alloc(4);
   b.writeUInt32BE(n >>> 0, 0);
   return b;
 }
-function crcOf(data: Buffer): number {
+function crc32(data: Buffer): number {
   let crc = 0xffffffff;
   for (let i = 0; i < data.length; i++) {
     crc ^= data[i];
-    for (let k = 0; k < 8; k++) crc = (crc & 1) ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
+    for (let k = 0; k < 8; k++) {
+      crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
+    }
   }
   return (crc ^ 0xffffffff) >>> 0;
 }
-function pngChunk(type: string, data: Buffer): Buffer {
+function chunk(type: string, data: Buffer): Buffer {
   const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
-  return Buffer.concat([be32(data.length), body, be32(crcOf(body))]);
+  return Buffer.concat([u32be(data.length), body, u32be(crc32(body))]);
 }
-function save(): void {
+function emit(): void {
   const raw = Buffer.alloc(H * (1 + W * 3));
   const frame = Buffer.from(buf.buffer, buf.byteOffset, buf.byteLength);
   for (let y = 0; y < H; y++) {
@@ -202,148 +223,151 @@ function save(): void {
   }
   const idat = zlib.deflateSync(raw, { level: 9 });
   const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(W, 0); ihdr.writeUInt32BE(H, 4);
-  ihdr[8] = 8; ihdr[9] = 2; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
-  const png = Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    pngChunk("IHDR", ihdr), pngChunk("IDAT", idat), pngChunk("IEND", Buffer.alloc(0)),
-  ]);
+  ihdr.writeUInt32BE(W, 0);
+  ihdr.writeUInt32BE(H, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 2;
+  ihdr[10] = 0;
+  ihdr[11] = 0;
+  ihdr[12] = 0;
+  const sig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const png = Buffer.concat([sig, chunk("IHDR", ihdr), chunk("IDAT", idat), chunk("IEND", Buffer.alloc(0))]);
   fs.mkdirSync("/output", { recursive: true });
   fs.writeFileSync(OUT, png);
 }
 
 // ---------------------------------------------------------------- compose
 function card(x: number, y: number, w: number, h: number, bg: number[]): void {
-  box(x, y, w, h, bg);
-  box(x, y, w, 3, GOLD);
-  box(x, y, 3, h, INK);
-  box(x + w - 3, y, 3, h, INK);
-  box(x, y + h - 3, w, 3, INK);
+  fill(x, y, w, h, bg);
+  fill(x, y, w, 3, GOLD);
+  fill(x, y, 3, h, INK);
+  fill(x + w - 3, y, 3, h, INK);
+  fill(x, y + h - 3, w, 3, INK);
 }
 
 function main(): void {
-  box(0, 0, W, H, PAPER);
+  fill(0, 0, W, H, PAPER);
 
   // ---- masthead
-  box(0, 0, W, 112, FOREST);
-  box(0, 112, W, 6, GOLD);
-  center(512, 16, "THE WORLD TODAY", 6, WHITE);
-  center(512, 64, "WEDNESDAY 25 NOVEMBER 2026  *  ONE IMAGE  *  SEVEN STORIES", 2, GOLD);
-  write(28, 90, "MARKETS  *  WAR  *  TECH  *  INTEL  *  CHESS", 2, [178, 205, 190]);
-  write(1024 - 28 - measure("NEWS-IMAGE-20261125", 2), 90, "NEWS-IMAGE-20261125", 2, [178, 205, 190]);
+  fill(0, 0, W, 112, FOREST);
+  fill(0, 112, W, 6, GOLD);
+  putC(512, 16, "THE WORLD TODAY", 6, WHITE);
+  putC(512, 64, "WEDNESDAY 25 NOVEMBER 2026  *  ONE IMAGE  *  SEVEN STORIES", 2, GOLD);
+  put(28, 90, "MARKETS  *  WAR  *  TECH  *  INTEL  *  CHESS", 2, [178, 205, 190]);
+  put(1024 - 28 - textW("NEWS-IMAGE-20261125", 2), 90, "NEWS-IMAGE-20261125", 2, [178, 205, 190]);
 
   // ---- HERO: Trump floats a pardon for Huang
   card(24, 130, 976, 292, WHITE);
-  fade(620, 146, 364, 260, [16, 60, 46], [34, 120, 60]);
+  grad(620, 146, 364, 260, [16, 60, 46], [34, 120, 60]);
   // capitol dome
-  disc(802, 258, 44, WHITE);
-  box(758, 258, 88, 8, WHITE);
-  box(740, 266, 124, 58, WHITE);
-  for (let i = 0; i < 5; i++) box(748 + i * 24, 276, 10, 40, FOREST2);
-  seg(802, 214, 802, 196, GOLD);
-  disc(802, 192, 4, GOLD);
+  ball(802, 258, 44, WHITE);
+  fill(758, 258, 88, 8, WHITE);
+  fill(740, 266, 124, 58, WHITE);
+  for (let i = 0; i < 5; i++) fill(748 + i * 24, 276, 10, 40, FOREST2);
+  line(802, 214, 802, 196, GOLD);
+  ball(802, 192, 4, GOLD);
   // falling chart
-  seg(640, 360, 700, 372, GOLD); seg(700, 372, 760, 368, GOLD);
-  seg(760, 368, 830, 382, GOLD); seg(830, 382, 900, 378, GOLD);
-  seg(900, 378, 956, 396, RED);
-  wedge(938, 390, 970, 390, 954, 412, RED);
-  disc(700, 372, 5, GOLD); disc(830, 382, 5, GOLD);
+  line(640, 360, 700, 372, GOLD); line(700, 372, 760, 368, GOLD);
+  line(760, 368, 830, 382, GOLD); line(830, 382, 900, 378, GOLD);
+  line(900, 378, 956, 396, RED);
+  tri(938, 390, 970, 390, 954, 412, RED);
+  ball(700, 372, 5, GOLD); ball(830, 382, 5, GOLD);
   // -6% stamp
-  box(648, 146, 176, 40, RED);
-  write(660, 154, "-6% IN A DAY", 2, WHITE);
+  fill(648, 146, 176, 40, RED);
+  put(660, 154, "-6% IN A DAY", 2, WHITE);
   // hero text
-  tag(44, 150, "1  MARKETS + POLITICS  -  WASHINGTON", GREEN);
-  write(44, 178, "TRUMP FLOATS", 7, INK);
-  write(44, 234, "PARDON", 7, INK);
-  block(44, 296, 556, "A pardon for Nvidia CEO Jensen Huang is 'always an option', Trump tells the New York Post, urging him to tell the truth to Congress next week, not plead the Fifth.", 2, 20, INK);
-  write(44, 392, "NVDA -6% * RALLY FIZZLES * US STAKE TALK", 2, TEAL);
+  kick(44, 150, "1  MARKETS + POLITICS  -  WASHINGTON", GREEN);
+  put(44, 178, "TRUMP FLOATS", 7, INK);
+  put(44, 234, "PARDON", 7, INK);
+  para(44, 296, 556, "A pardon for Nvidia CEO Jensen Huang is 'always an option', Trump tells the New York Post, urging him to tell the truth to Congress next week, not plead the Fifth.", 2, 20, INK);
+  put(44, 392, "NVDA -6% * RALLY FIZZLES * US STAKE TALK", 2, TEAL);
 
   // ---- ROW 2: two panels
   // Zelenskiy confirms the Sparta II strike
   card(24, 434, 480, 214, WHITE);
-  box(40, 450, 448, 62, FOREST);
+  fill(40, 450, 448, 62, FOREST);
   // burning ship
-  box(64, 478, 120, 16, [90, 96, 104]);
-  wedge(64, 478, 110, 478, 86, 452, [120, 130, 140]);
-  wedge(120, 452, 150, 468, 120, 482, ORANGE);
-  wedge(150, 458, 178, 470, 152, 484, RED);
-  disc(210, 468, 5, RED);
+  fill(64, 478, 120, 16, [90, 96, 104]);
+  tri(64, 478, 110, 478, 86, 452, [120, 130, 140]);
+  tri(120, 452, 150, 468, 120, 482, ORANGE);
+  tri(150, 458, 178, 470, 152, 484, RED);
+  ball(210, 468, 5, RED);
   // funnel + waves under the burning ship
-  box(150, 466, 14, 12, [60, 64, 70]);
-  seg(64, 500, 184, 500, [52, 110, 168]);
-  seg(80, 506, 170, 506, [52, 110, 168]);
-  write(240, 466, "KYIV CLAIMS", 3, WHITE);
-  write(240, 492, "THE SHIP STRIKE", 2, GOLD);
-  tag(40, 528, "2  WAR AT SEA  -  GULF OF FINLAND", RED);
-  write(40, 554, "SPARTA II", 3, INK);
-  write(40, 578, "HIT AT SEA", 3, INK);
-  block(40, 610, 448, "Zelenskiy confirms Ukraine hit the Russian ship. Norway urges caution.", 2, 18, GREY);
+  fill(150, 466, 14, 12, [60, 64, 70]);
+  line(64, 500, 184, 500, [52, 110, 168]);
+  line(80, 506, 170, 506, [52, 110, 168]);
+  put(240, 466, "KYIV CLAIMS", 3, WHITE);
+  put(240, 492, "THE SHIP STRIKE", 2, GOLD);
+  kick(40, 528, "2  WAR AT SEA  -  GULF OF FINLAND", RED);
+  put(40, 554, "SPARTA II", 3, INK);
+  put(40, 578, "HIT AT SEA", 3, INK);
+  para(40, 610, 448, "Zelenskiy confirms Ukraine hit the Russian ship. Norway urges caution.", 2, 18, GREY);
 
   // Houthi drone hits the Riyadh tower
   card(520, 434, 480, 214, WHITE);
-  box(536, 450, 448, 62, [24, 44, 60]);
+  fill(536, 450, 448, 62, [24, 44, 60]);
   // tower + blast
-  box(560, 470, 26, 42, [180, 190, 200]);
-  wedge(560, 470, 586, 470, 573, 452, ORANGE);
-  disc(600, 470, 5, RED);
-  wedge(620, 456, 648, 472, 624, 488, RED);
-  write(660, 466, "DRONE HITS", 3, WHITE);
-  write(660, 492, "RIYADH TOWER", 2, GOLD);
-  tag(536, 528, "3  MIDDLE EAST  -  RIYADH", TEAL);
-  write(536, 554, "TOWER HIT", 3, INK);
-  write(536, 578, "11 WOUNDED", 3, INK);
-  block(536, 610, 448, "A Houthi drone hits Riyadh's tallest tower, wounding 11.", 2, 18, GREY);
+  fill(560, 470, 26, 42, [180, 190, 200]);
+  tri(560, 470, 586, 470, 573, 452, ORANGE);
+  ball(600, 470, 5, RED);
+  tri(620, 456, 648, 472, 624, 488, RED);
+  put(660, 466, "DRONE HITS", 3, WHITE);
+  put(660, 492, "RIYADH TOWER", 2, GOLD);
+  kick(536, 528, "3  MIDDLE EAST  -  RIYADH", TEAL);
+  put(536, 554, "TOWER HIT", 3, INK);
+  put(536, 578, "11 WOUNDED", 3, INK);
+  para(536, 610, 448, "A Houthi drone hits Riyadh's tallest tower, wounding 11.", 2, 18, GREY);
 
   // ---- ROW 3: three panels
   // Huawei convicted
   card(24, 660, 316, 204, WHITE);
-  box(24, 660, 316, 10, TEAL);
+  fill(24, 660, 316, 10, TEAL);
   // chip
-  box(56, 676, 64, 64, [20, 32, 28]);
-  box(66, 686, 44, 44, FOREST2);
-  write(74, 700, "HW", 3, WHITE);
+  fill(56, 676, 64, 64, [20, 32, 28]);
+  fill(66, 686, 44, 44, FOREST2);
+  put(74, 700, "HW", 3, WHITE);
   for (let i = 0; i < 3; i++) {
-    box(56, 688 + i * 20, 8, 6, GOLD);
-    box(112, 688 + i * 20, 8, 6, GOLD);
+    fill(56, 688 + i * 20, 8, 6, GOLD);
+    fill(112, 688 + i * 20, 8, 6, GOLD);
   }
-  tag(40, 748, "4  TECH  -  NEW YORK", TEAL);
-  write(40, 772, "HUAWEI", 3, INK);
-  write(40, 796, "CONVICTED", 2, INK);
-  block(40, 822, 284, "Guilty of trade-secret theft, a US jury rules.", 2, 16, GREY);
+  kick(40, 748, "4  TECH  -  NEW YORK", TEAL);
+  put(40, 772, "HUAWEI", 3, INK);
+  put(40, 796, "CONVICTED", 2, INK);
+  para(40, 822, 284, "Guilty of trade-secret theft, a US jury rules.", 2, 16, GREY);
 
   // CIA breach
   card(354, 660, 316, 204, WHITE);
-  box(354, 660, 316, 10, BLUE);
+  fill(354, 660, 316, 10, BLUE);
   // warning disc
-  disc(402, 706, 26, BLUE);
-  write(396, 696, "!", 4, WHITE);
-  tag(370, 748, "5  INTEL  -  WASHINGTON", BLUE);
-  write(370, 772, "CIA HIT BY", 3, INK);
-  write(370, 796, "CYBER BREACH", 2, INK);
-  block(370, 822, 284, "Unclassified data exposed, a source says.", 2, 16, GREY);
+  ball(402, 706, 26, BLUE);
+  put(396, 696, "!", 4, WHITE);
+  kick(370, 748, "5  INTEL  -  WASHINGTON", BLUE);
+  put(370, 772, "CIA HIT BY", 3, INK);
+  put(370, 796, "CYBER BREACH", 2, INK);
+  para(370, 822, 284, "Unclassified data exposed, a source says.", 2, 16, GREY);
 
   // World Chess Championship, game 2 today
   card(684, 660, 316, 204, WHITE);
-  box(684, 660, 316, 10, GREEN);
+  fill(684, 660, 316, 10, GREEN);
   // mini chessboard 4x4
   for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
-    if ((r + c) % 2 === 0) box(700 + c * 22, 676 + r * 22, 22, 22, INK);
-    else box(700 + c * 22, 676 + r * 22, 22, 22, CREAM);
+    if ((r + c) % 2 === 0) fill(700 + c * 22, 676 + r * 22, 22, 22, INK);
+    else fill(700 + c * 22, 676 + r * 22, 22, 22, CREAM);
   }
-  disc(711, 687, 7, WHITE); disc(755, 731, 7, RED);
-  tag(796, 700, "6  CHESS", GREEN);
-  write(796, 726, "GENEVA", 2, INK);
-  block(700, 768, 284, "Gukesh has White after game 1 ends in a 38-move draw.", 2, 18, GREY);
+  ball(711, 687, 7, WHITE); ball(755, 731, 7, RED);
+  kick(796, 700, "6  CHESS", GREEN);
+  put(796, 726, "GENEVA", 2, INK);
+  para(700, 768, 284, "Gukesh has White after game 1 ends in a 38-move draw.", 2, 18, GREY);
 
   // ---- bottom ticker
-  box(24, 876, 976, 88, FOREST);
-  box(24, 876, 976, 4, GOLD);
-  write(40, 892, "ALSO TODAY", 3, GOLD);
-  write(40, 920, "NATO EARLY-WARNING JETS TO POLAND * GIULIANI GETS MEDAL OF FREEDOM", 2, WHITE);
-  write(40, 942, "SHENZHOU-24 LAUNCHES WITH FIRST PAKISTANI ASTRONAUT * NEPAL QUAKE 5.4", 2, WHITE);
-  center(512, 978, "SOURCES: REUTERS  *  NY POST  *  AP  *  BBC  *  CHESSBASE  *  25 NOVEMBER 2026", 2, GREY);
+  fill(24, 876, 976, 88, FOREST);
+  fill(24, 876, 976, 4, GOLD);
+  put(40, 892, "ALSO TODAY", 3, GOLD);
+  put(40, 920, "NATO EARLY-WARNING JETS TO POLAND * GIULIANI GETS MEDAL OF FREEDOM", 2, WHITE);
+  put(40, 942, "SHENZHOU-24 LAUNCHES WITH FIRST PAKISTANI ASTRONAUT * NEPAL QUAKE 5.4", 2, WHITE);
+  putC(512, 978, "SOURCES: REUTERS  *  NY POST  *  AP  *  BBC  *  CHESSBASE  *  25 NOVEMBER 2026", 2, GREY);
 
-  save();
+  emit();
 }
 
 main();

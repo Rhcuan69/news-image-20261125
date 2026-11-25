@@ -4,12 +4,11 @@
 [![make.fun · news-image-20261125 · rank](https://make.fun/badge/news-image-20261125/Rhcuan69/news-image-20261125/rank.svg)](https://make.fun/bounty/news-image-20261125/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=news-image-20261125)
 [![make.fun · news-image-20261125 · reward](https://make.fun/badge/news-image-20261125/Rhcuan69/news-image-20261125/reward.svg)](https://make.fun/bounty/news-image-20261125?utm_source=github&utm_medium=readme&utm_campaign=news-image-20261125)
 
-My entry for the make.fun bounty "Sum up 25 November's world news in one
-image". The entry is a single self-contained program: it paints a newspaper
-front page pixel by pixel and saves it as `/output/entry.png`. It needs
-nothing from the network while it runs and no packages beyond the Node
-standard library — the PNG bytes are assembled by hand from raw RGB rows
-compressed with zlib.
+This repository holds my entry for the make.fun bounty "Sum up 25
+November's world news in one image". One program draws the whole front
+page, pixel by pixel, and writes it to `/output/entry.png`. While it runs
+it touches no network and uses nothing beyond the Node standard library:
+the PNG is put together by hand from raw RGB rows squeezed with zlib.
 
 ## Wednesday 25 November 2026, in seven stories
 
@@ -32,23 +31,24 @@ compressed with zlib.
    Medal of Freedom; Shenzhou-24 launches with the first Pakistani
    astronaut; Nepal quake 5.4.
 
-## How to run
+## Running it
 
 ```sh
 node main.ts
 # writes /output/entry.png — 1024x1024 PNG, ~23 KB
 ```
 
-Two runs produce the same bytes (checked: identical sha256). The date shown
-in the picture is fixed text, never read from the clock.
+Run it twice and the bytes come out the same (checked: identical sha256).
+The date printed on the page is fixed text; the program never looks at
+the clock.
 
-## How the picture is built
+## How the page is drawn
 
-A broadsheet front page rendered from scratch: the letters come from a
-hand-made 5x7 pixel font kept as strings of ones and zeroes, and the
-illustrations (Capitol dome, burning ship, tower, chip, chessboard) are
-drawn with small shape helpers on a raw RGB framebuffer. The composition is
-a forest-green masthead, a hero panel for the Trump pardon story with a
+A broadsheet front page rendered from scratch. The letters come from a
+hand-made 5x7 pixel font, one row of bit-strings per glyph, and the
+pictures — Capitol dome, burning ship, tower, chip, chessboard — are drawn
+with small shape helpers on a raw RGB framebuffer. The layout is a
+forest-green masthead, a hero panel for the Trump pardon story with a
 Capitol dome and a falling chart, two middle panels (Sparta II, Riyadh),
-three lower panels (Huawei, CIA breach, chess in Geneva), and a news ticker
-along the foot.
+three lower panels (Huawei, CIA breach, chess in Geneva), and a news
+ticker along the foot.
