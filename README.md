@@ -48,7 +48,7 @@ A broadsheet front page rendered from scratch. The letters come from a
 hand-made 5x7 pixel font, one row of bit-strings per glyph, and the
 pictures — Capitol dome, burning ship, tower, chip, chessboard — are drawn
 with small shape helpers on a raw RGB framebuffer. The layout is a
-forest-green masthead, a hero panel for the Trump pardon story with a
+deep-navy masthead, a hero panel for the Trump pardon story with a
 Capitol dome and a falling chart, two middle panels (Sparta II, Riyadh),
 three lower panels (Huawei, CIA breach, chess in Geneva), and a news
 ticker along the foot.

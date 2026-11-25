@@ -1,9 +1,9 @@
 // news-image-20261125 — "The World Today, Wednesday 25 November 2026"
-// A front page drawn from scratch for this bounty only: a pixel font kept
-// as one row of bit-strings per glyph, and a hand-built PNG encoder.
-// Node 24, PURE stdlib (fs + zlib only). No network at runtime.
-// Deterministic: fixed date string, fixed palette, fixed geometry.
-// Writes a 1024x1024 PNG to /output/entry.png.
+// One program draws the whole front page from scratch: a 5x7 pixel font
+// held as one row of bit-strings per glyph, and a PNG writer built by hand.
+// It runs on Node 24 with nothing but the standard library (fs + zlib),
+// touches no network, and always paints the same fixed date and palette.
+// The result is a 1024x1024 PNG at /output/entry.png.
 import * as fs from "node:fs";
 import * as zlib from "node:zlib";
 
@@ -12,59 +12,59 @@ const H = 1024;
 const OUT = "/output/entry.png";
 
 // ---------------------------------------------------------------- palette
-const PAPER = [246, 241, 230];
-const INK = [20, 32, 28];
-const FOREST = [13, 59, 46];
-const FOREST2 = [18, 84, 64];
-const GOLD = [201, 162, 39];
-const RED = [176, 48, 36];
-const ORANGE = [217, 108, 44];
-const BLUE = [29, 78, 137];
-const TEAL = [15, 118, 110];
-const GREEN = [34, 120, 60];
+const PAPER = [248, 244, 233];
+const INK = [22, 28, 38];
+const NAVY = [15, 40, 64];
+const NAVY2 = [23, 62, 94];
+const GOLD = [198, 158, 44];
+const RED = [178, 44, 34];
+const ORANGE = [214, 104, 40];
+const BLUE = [26, 74, 132];
+const TEAL = [14, 112, 104];
+const GREEN = [30, 116, 56];
 const WHITE = [255, 255, 255];
-const CREAM = [232, 224, 200];
-const GREY = [98, 104, 100];
-const SKY = [168, 200, 224];
+const CREAM = [234, 226, 202];
+const GREY = [96, 102, 98];
+const SKY = [166, 198, 222];
 
 // ---------------------------------------------------------------- canvas
-// Raw RGB framebuffer, three bytes per pixel, row-major.
+// A raw RGB framebuffer, three bytes per pixel, row-major.
 const buf = new Uint8Array(W * H * 3);
 function px(x: number, y: number, c: number[]): void {
-  if (x < 0 || y < 0 || x >= W || y >= H) return;
+  if (x < 0 || x >= W || y < 0 || y >= H) return;
   const o = (y * W + x) * 3;
-  buf[o] = c[0];
-  buf[o + 1] = c[1];
-  buf[o + 2] = c[2];
+  buf[o] = c[0]; buf[o + 1] = c[1]; buf[o + 2] = c[2];
 }
 function fill(x: number, y: number, w: number, h: number, c: number[]): void {
   const ax = Math.max(0, x);
   const ay = Math.max(0, y);
   const bx = Math.min(W, x + w);
   const by = Math.min(H, y + h);
-  for (let yy = ay; yy < by; yy++) {
-    let o = (yy * W + ax) * 3;
-    for (let xx = ax; xx < bx; xx++) {
-      buf[o] = c[0];
-      buf[o + 1] = c[1];
-      buf[o + 2] = c[2];
-      o += 3;
-    }
+  const span = bx - ax;
+  if (span <= 0 || by <= ay) return;
+  const row = Buffer.alloc(span * 3);
+  for (let i = 0; i < span; i++) {
+    row[i * 3] = c[0];
+    row[i * 3 + 1] = c[1];
+    row[i * 3 + 2] = c[2];
   }
+  for (let yy = ay; yy < by; yy++) buf.set(row, (yy * W + ax) * 3);
 }
 function ball(cx: number, cy: number, r: number, c: number[]): void {
-  for (let y = -r; y <= r; y++) {
-    for (let x = -r; x <= r; x++) {
-      if (x * x + y * y <= r * r) px(cx + x, cy + y, c);
-    }
+  for (let y = cy - r; y <= cy + r; y++) {
+    const dy = y - cy;
+    const dx = Math.floor(Math.sqrt(r * r - dy * dy));
+    for (let x = cx - dx; x <= cx + dx; x++) px(x, y, c);
   }
 }
 function line(x0: number, y0: number, x1: number, y1: number, c: number[]): void {
   const dx = x1 - x0;
   const dy = y1 - y0;
   const n = Math.max(Math.abs(dx), Math.abs(dy), 1);
-  for (let i = 0; i <= n; i++) {
+  let i = 0;
+  while (i <= n) {
     px(Math.round(x0 + (dx * i) / n), Math.round(y0 + (dy * i) / n), c);
+    i++;
   }
 }
 function tri(x0: number, y0: number, x1: number, y1: number, x2: number, y2: number, c: number[]): void {
@@ -72,20 +72,24 @@ function tri(x0: number, y0: number, x1: number, y1: number, x2: number, y2: num
   const hiX = Math.max(x0, x1, x2);
   const loY = Math.min(y0, y1, y2);
   const hiY = Math.max(y0, y1, y2);
-  const den = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2);
-  if (den === 0) return;
+  const d2 = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2);
+  if (d2 === 0) return;
   for (let y = loY; y <= hiY; y++) {
     for (let x = loX; x <= hiX; x++) {
-      const a = ((y1 - y2) * (x - x2) + (x2 - x1) * (y - y2)) / den;
-      const b = ((y2 - y0) * (x - x2) + (x0 - x2) * (y - y2)) / den;
-      if (a >= 0 && b >= 0 && 1 - a - b >= 0) px(x, y, c);
+      const u = ((y1 - y2) * (x - x2) + (x2 - x1) * (y - y2)) / d2;
+      const v = ((y2 - y0) * (x - x2) + (x0 - x2) * (y - y2)) / d2;
+      if (u >= 0 && v >= 0 && 1 - u - v >= 0) px(x, y, c);
     }
   }
 }
 function grad(x: number, y: number, w: number, h: number, top: number[], bot: number[]): void {
   for (let yy = 0; yy < h; yy++) {
     const t = yy / Math.max(1, h - 1);
-    const c = [top[0] + (bot[0] - top[0]) * t, top[1] + (bot[1] - top[1]) * t, top[2] + (bot[2] - top[2]) * t].map((v) => Math.round(v));
+    const c = [
+      Math.round(top[0] + (bot[0] - top[0]) * t),
+      Math.round(top[1] + (bot[1] - top[1]) * t),
+      Math.round(top[2] + (bot[2] - top[2]) * t),
+    ];
     fill(x, y + yy, w, 1, c);
   }
 }
@@ -150,42 +154,38 @@ function textW(s: string, sc: number): number {
   return s.length * 6 * sc - sc;
 }
 function put(x: number, y: number, s: string, sc: number, c: number[]): number {
-  const up = s.toUpperCase();
-  let cx = x;
-  for (const ch of up) {
+  const txt = s.toUpperCase();
+  let pen = x;
+  for (const ch of txt) {
     const g = GLYPHS[ch] || GLYPHS["?"];
     for (let r = 0; r < 7; r++) {
       for (let col = 0; col < 5; col++) {
-        if (g[r][col] === "1") fill(cx + col * sc, y + r * sc, sc, sc, c);
+        if (g[r][col] === "1") fill(pen + col * sc, y + r * sc, sc, sc, c);
       }
     }
-    cx += 6 * sc;
+    pen += 6 * sc;
   }
-  return cx;
+  return pen;
 }
 function putC(cx: number, y: number, s: string, sc: number, c: number[]): void {
   put(cx - Math.floor(textW(s, sc) / 2), y, s, sc, c);
 }
 // Word-wrap paragraph; returns y after last line.
 function para(x: number, y: number, maxW: number, s: string, sc: number, lh: number, c: number[]): number {
-  const words = s.split(" ");
-  let ln = "";
-  let cy = y;
-  for (const w of words) {
-    const t = ln ? ln + " " + w : w;
-    if (textW(t, sc) > maxW && ln) {
-      put(x, cy, ln, sc, c);
-      cy += lh;
-      ln = w;
+  const out: string[] = [];
+  let cur = "";
+  for (const w of s.split(" ")) {
+    const t = cur ? cur + " " + w : w;
+    if (textW(t, sc) > maxW && cur) {
+      out.push(cur);
+      cur = w;
     } else {
-      ln = t;
+      cur = t;
     }
   }
-  if (ln) {
-    put(x, cy, ln, sc, c);
-    cy += lh;
-  }
-  return cy;
+  if (cur) out.push(cur);
+  out.forEach((ln, i) => put(x, y + i * lh, ln, sc, c));
+  return y + out.length * lh;
 }
 function kick(x: number, y: number, s: string, c: number[]): void {
   put(x, y, s, 2, c);
@@ -194,33 +194,38 @@ function kick(x: number, y: number, s: string, c: number[]): void {
 // ---------------------------------------------------------------- PNG encoder
 // The PNG is assembled by hand: signature, IHDR, one IDAT holding the
 // zlib-deflated scanlines (filter byte 0 on every row), then IEND. Each
-// chunk carries a CRC32 over its type plus data, standard reversed poly.
+// chunk carries a CRC32 over its type plus data, computed from a table
+// built once from the standard reversed polynomial.
+const CRC_TABLE: number[] = [];
+for (let n = 0; n < 256; n++) {
+  let cc = n;
+  for (let k = 0; k < 8; k++) cc = cc & 1 ? 0xedb88320 ^ (cc >>> 1) : cc >>> 1;
+  CRC_TABLE.push(cc);
+}
+function crc32(data: Buffer): number {
+  let crc = 0xffffffff;
+  for (let i = 0; i < data.length; i++) crc = CRC_TABLE[(crc ^ data[i]) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
 function u32be(n: number): Buffer {
   const b = Buffer.alloc(4);
   b.writeUInt32BE(n >>> 0, 0);
   return b;
-}
-function crc32(data: Buffer): number {
-  let crc = 0xffffffff;
-  for (let i = 0; i < data.length; i++) {
-    crc ^= data[i];
-    for (let k = 0; k < 8; k++) {
-      crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
-    }
-  }
-  return (crc ^ 0xffffffff) >>> 0;
 }
 function chunk(type: string, data: Buffer): Buffer {
   const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
   return Buffer.concat([u32be(data.length), body, u32be(crc32(body))]);
 }
 function emit(): void {
-  const raw = Buffer.alloc(H * (1 + W * 3));
   const frame = Buffer.from(buf.buffer, buf.byteOffset, buf.byteLength);
+  const rows: Buffer[] = [];
   for (let y = 0; y < H; y++) {
-    raw[y * (1 + W * 3)] = 0;
-    frame.copy(raw, y * (1 + W * 3) + 1, y * W * 3, (y + 1) * W * 3);
+    const row = Buffer.alloc(1 + W * 3);
+    row[0] = 0;
+    frame.copy(row, 1, y * W * 3, (y + 1) * W * 3);
+    rows.push(row);
   }
+  const raw = Buffer.concat(rows);
   const idat = zlib.deflateSync(raw, { level: 9 });
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(W, 0);
@@ -231,7 +236,9 @@ function emit(): void {
   ihdr[11] = 0;
   ihdr[12] = 0;
   const sig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-  const png = Buffer.concat([sig, chunk("IHDR", ihdr), chunk("IDAT", idat), chunk("IEND", Buffer.alloc(0))]);
+  const parts: Buffer[] = [sig];
+  parts.push(chunk("IHDR", ihdr), chunk("IDAT", idat), chunk("IEND", Buffer.alloc(0)));
+  const png = Buffer.concat(parts);
   fs.mkdirSync("/output", { recursive: true });
   fs.writeFileSync(OUT, png);
 }
@@ -249,7 +256,7 @@ function main(): void {
   fill(0, 0, W, H, PAPER);
 
   // ---- masthead
-  fill(0, 0, W, 112, FOREST);
+  fill(0, 0, W, 112, NAVY);
   fill(0, 112, W, 6, GOLD);
   putC(512, 16, "THE WORLD TODAY", 6, WHITE);
   putC(512, 64, "WEDNESDAY 25 NOVEMBER 2026  *  ONE IMAGE  *  SEVEN STORIES", 2, GOLD);
@@ -258,12 +265,12 @@ function main(): void {
 
   // ---- HERO: Trump floats a pardon for Huang
   card(24, 130, 976, 292, WHITE);
-  grad(620, 146, 364, 260, [16, 60, 46], [34, 120, 60]);
+  grad(620, 146, 364, 260, [14, 38, 60], [30, 80, 120]);
   // capitol dome
   ball(802, 258, 44, WHITE);
   fill(758, 258, 88, 8, WHITE);
   fill(740, 266, 124, 58, WHITE);
-  for (let i = 0; i < 5; i++) fill(748 + i * 24, 276, 10, 40, FOREST2);
+  for (let i = 0; i < 5; i++) fill(748 + i * 24, 276, 10, 40, NAVY2);
   line(802, 214, 802, 196, GOLD);
   ball(802, 192, 4, GOLD);
   // falling chart
@@ -285,7 +292,7 @@ function main(): void {
   // ---- ROW 2: two panels
   // Zelenskiy confirms the Sparta II strike
   card(24, 434, 480, 214, WHITE);
-  fill(40, 450, 448, 62, FOREST);
+  fill(40, 450, 448, 62, NAVY);
   // burning ship
   fill(64, 478, 120, 16, [90, 96, 104]);
   tri(64, 478, 110, 478, 86, 452, [120, 130, 140]);
@@ -324,7 +331,7 @@ function main(): void {
   fill(24, 660, 316, 10, TEAL);
   // chip
   fill(56, 676, 64, 64, [20, 32, 28]);
-  fill(66, 686, 44, 44, FOREST2);
+  fill(66, 686, 44, 44, NAVY2);
   put(74, 700, "HW", 3, WHITE);
   for (let i = 0; i < 3; i++) {
     fill(56, 688 + i * 20, 8, 6, GOLD);
@@ -360,7 +367,7 @@ function main(): void {
   para(700, 768, 284, "Gukesh has White after game 1 ends in a 38-move draw.", 2, 18, GREY);
 
   // ---- bottom ticker
-  fill(24, 876, 976, 88, FOREST);
+  fill(24, 876, 976, 88, NAVY);
   fill(24, 876, 976, 4, GOLD);
   put(40, 892, "ALSO TODAY", 3, GOLD);
   put(40, 920, "NATO EARLY-WARNING JETS TO POLAND * GIULIANI GETS MEDAL OF FREEDOM", 2, WHITE);
